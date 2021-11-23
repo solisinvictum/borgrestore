@@ -1,0 +1,60 @@
+#!/bin/bash
+
+source /etc/borgrestore/borgrestore.conf
+
+## Mounts the Repo
+borg mount $BORGREPO $MOUNTPOINT
+
+echo "------------------------------------------"
+echo "Wich Snapshot do you want to restore? If you took this Snapshot with Vorta, then the Syntax would be hostname-year-mounth-day-time, for my Machine galaxias-2021-11-23-212617 for example"
+echo "------------------------------------------"
+
+## Lists what Snapshots are available from Borg
+borg list $BORGREPO
+echo ""
+read -p "Selection:" snapshot
+echo ""
+echo "Selected $snapshot"
+echo ""
+
+
+
+## Customized Whileloop from this Source because i was to lazy to read with man how loops are made: https://tecadmin.net/bash-script-prompt-to-confirm-yes-no/
+while true
+do
+ read -r -p "ARE YOU SURE? AFTER THIS STEP, THERE IS NO WAY BACK! (y/n)" confirmation
+
+ case $confirmation in
+     [yY][eE][sS]|[yY])
+
+        # This restores the Snapshot to Destination and at the end it prompts how long it took
+        time rsync --verbose --archive --itemize-changes --hard-links $RSYNCEXCLUDES --delete $MOUNTPOINT/$snapshot/ $DESTINATION
+
+        ## Remove some Tempfiles for a clean start from the original System (if selected). This could be unnecessary, but i like it safe.
+        if [ $LIVESYSTEM = "0" ]
+            then
+                rm -Rf $DESTINATION/tmp/*
+                rm -Rf $DESTINATION/run/*
+        fi
+
+        ## Umount the Borg Repo again
+        umount $MOUNTPOINT
+        echo ""
+        echo "------------------------------------------"
+        echo "Recovery completed! System can now be restarted. If the recovery was made while the operating system was running, a reboot is mandatory!"
+        echo "------------------------------------------"
+
+ break
+ ;;
+     [nN][oO]|[nN])
+
+        umount $MOUNTPOINT
+        exit
+
+ break
+        ;;
+     *)
+ echo "Only Y/N are valid!"
+ ;;
+ esac
+done
