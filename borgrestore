@@ -37,7 +37,7 @@ do
      [yY][eE][sS]|[yY])
 
         # This restores the Snapshot to Destination and at the end it prompts how long it took
-        time rsync --verbose --archive --itemize-changes --hard-links $RSYNCEXCLUDES --delete $MOUNTPOINT/$snapshot/ $DESTINATION
+        time rsync --verbose --archive --itemize-changes --hard-links $RSYNCEXCLUDES --delete "$MOUNTPOINT/$snapshot/" "$DESTINATION"
 
         ## Remove some Tempfiles for a clean start from the original System (if selected). This could be unnecessary, but i like it safe.
         if [ $LIVESYSTEM = "0" ]
