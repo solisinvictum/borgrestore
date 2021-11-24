@@ -1,6 +1,15 @@
 #!/bin/bash
 
+## Include the Configfile
 source /etc/borgrestore/borgrestore.conf
+
+## Check if the Configfile was readed and configured
+if [ $CONFIGURED = "0" ]
+    then
+
+       echo "Please read and configure the configfile under /etc/borgrestore/borgrestore.conf first!"
+       exit
+fi
 
 ## Mounts the Repo
 borg mount $BORGREPO $MOUNTPOINT
