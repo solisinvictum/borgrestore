@@ -19,7 +19,7 @@ echo "Wich Snapshot do you want to restore? If you took this Snapshot with Vorta
 echo "------------------------------------------"
 
 ## Lists what Snapshots are available from Borg
-borg list $BORGREPO
+borg list "$BORGREPO"
 echo ""
 read -p "Selection:" snapshot
 echo ""
@@ -42,12 +42,12 @@ do
         ## Remove some Tempfiles for a clean start from the original System (if selected). This could be unnecessary, but i like it safe.
         if [ $LIVESYSTEM = "0" ]
             then
-                rm -Rf $DESTINATION/tmp/*
-                rm -Rf $DESTINATION/run/*
+                rm -Rf "$DESTINATION"/tmp/*
+                rm -Rf "$DESTINATION"/run/*
         fi
 
         ## Umount the Borg Repo again
-        umount $MOUNTPOINT
+        umount "$MOUNTPOINT"
         echo ""
         echo "------------------------------------------"
         echo "Recovery completed! System can now be restarted. If the recovery was made while the operating system was running, a reboot is mandatory!"
@@ -57,7 +57,7 @@ do
  ;;
      [nN][oO]|[nN])
 
-        umount $MOUNTPOINT
+        umount "$MOUNTPOINT"
         exit
 
  break
