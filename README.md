@@ -40,6 +40,7 @@ I decided to use the safe option.
 - The nice Guys from #Gentoo IRC Channel
 - The nice Guys from #rsync IRC Channel
 - Archwiki
+- and many other... (they get mentioned in the commits)
 
 # Other
 
