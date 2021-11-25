@@ -40,7 +40,7 @@ do
         time rsync --verbose --archive --itemize-changes --hard-links $RSYNCEXCLUDES --delete "$MOUNTPOINT/$snapshot/" "$DESTINATION"
 
         ##Realized that the deletion of the content in /tmp and /run could be wrong, if a another destination is choosen. so checking.
-        if [ $DESTINATION = "/" ]
+        if [ "$DESTINATION" = "/" ]
             then
                 ## Remove some Tempfiles for a clean start from the original System (if selected). This could be unnecessary, but i like it safe.
                   if [ $LIVESYSTEM = "0" ]
