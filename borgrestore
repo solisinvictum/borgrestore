@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ## Include the Configfile
-source /etc/borgrestore/borgrestore.conf
+source "/etc/borgrestore/borgrestore.conf"
 
 ## Check if the Configfile was readed and configured
 if [ $CONFIGURED = "0" ]
@@ -12,7 +12,7 @@ if [ $CONFIGURED = "0" ]
 fi
 
 ## Mounts the Repo
-borg mount $BORGREPO $MOUNTPOINT
+borg mount "$BORGREPO" "$MOUNTPOINT"
 
 echo "------------------------------------------"
 echo "Wich Snapshot do you want to restore? If you took this Snapshot with Vorta, then the Syntax would be hostname-year-mounth-day-time, for my Machine galaxias-2021-11-23-212617 for example"
@@ -37,7 +37,7 @@ do
      [yY][eE][sS]|[yY])
 
         # This restores the Snapshot to Destination and at the end it prompts how long it took
-        time rsync --verbose --archive --itemize-changes --hard-links $RSYNCEXCLUDES --delete "$MOUNTPOINT/$snapshot/" "$DESTINATION"
+        time rsync --verbose --archive --itemize-changes --hard-links "${RSYNCEXCLUDES[@]/#/--exclude=}" --delete "$MOUNTPOINT/$snapshot/" "$DESTINATION"
 
         ##Realized that the deletion of the content in /tmp and /run could be wrong, if a another destination is choosen. so checking.
         if [ "$DESTINATION" = "/" ]
