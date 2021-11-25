@@ -39,13 +39,16 @@ do
         # This restores the Snapshot to Destination and at the end it prompts how long it took
         time rsync --verbose --archive --itemize-changes --hard-links $RSYNCEXCLUDES --delete "$MOUNTPOINT/$snapshot/" "$DESTINATION"
 
-        ## Remove some Tempfiles for a clean start from the original System (if selected). This could be unnecessary, but i like it safe.
-        if [ $LIVESYSTEM = "0" ]
+        ##Realized that the deletion of the content in /tmp and /run could be wrong, if a another destination is choosen. so checking.
+        if [ $DESTINATION = "/" ]
             then
-                rm -Rf "$DESTINATION"/tmp/*
-                rm -Rf "$DESTINATION"/run/*
+                ## Remove some Tempfiles for a clean start from the original System (if selected). This could be unnecessary, but i like it safe.
+                  if [ $LIVESYSTEM = "0" ]
+                       then
+                            rm -Rf "$DESTINATION"/tmp/*
+                            rm -Rf "$DESTINATION"/run/*
+                  fi
         fi
-
         ## Umount the Borg Repo again
         umount "$MOUNTPOINT"
         echo ""
