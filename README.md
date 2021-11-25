@@ -20,7 +20,7 @@ The script is quite rudimentary. And certainly not perfect. Some things could ha
 
 In this repo is a PKGBUILD for Arch based operating systems. 
 
-For any other system, just move the script "borgrestore" to /usr/bin for example and "borgrestore.conf" to "/etc/borgrestore/".
+For any other (Linux-) system, just move the script "borgrestore" to /usr/bin for example and "borgrestore.conf" to "/etc/borgrestore/".
 
 # What else is coming in this repo?
 
