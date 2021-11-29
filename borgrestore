@@ -45,8 +45,8 @@ do
                 ## Remove some Tempfiles for a clean start from the original System (if selected). This could be unnecessary, but i like it safe.
                   if [ $LIVESYSTEM = "0" ]
                        then
-                            rm -Rf "$DESTINATION"/tmp/*
-                            rm -Rf "$DESTINATION"/run/*
+                            rm -Rf -- "$DESTINATION"/tmp/*
+                            rm -Rf -- "$DESTINATION"/run/*
                   fi
         fi
         ## Umount the Borg Repo again
