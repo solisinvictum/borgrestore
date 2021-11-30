@@ -92,7 +92,7 @@ do
      [yY][eE][sS]|[yY])
 
         # This restores the Snapshot to Destination and at the end it prompts how long it took. This ignores borgrestore and his config himselfs too to prevent a remove/downgrade of borgrestore.
-        time rsync --verbose --archive --itemize-changes --hard-links --exclude=/usr/bin/borgrestore --exlude=/etc/borgrestore/borgrestore.conf "${RSYNCEXCLUDES[@]/#/--exclude=}" --delete "$MOUNTPOINT/$snapshot/" "$DESTINATION"
+        time rsync --verbose --archive --itemize-changes --hard-links --exclude=/usr/bin/borgrestore --exclude=/etc/borgrestore/borgrestore.conf "${RSYNCEXCLUDES[@]/#/--exclude=}" --delete "$MOUNTPOINT/$snapshot/" "$DESTINATION"
 
         ##Realized that the deletion of the content in /tmp and /run could be wrong, if a another destination is choosen. so checking.
         if [ "$DESTINATION" = "/" ]
