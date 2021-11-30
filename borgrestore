@@ -18,15 +18,24 @@ echo "------------------------------------------"
 echo "Wich Snapshot do you want to restore? If you took this Snapshot with Vorta, then the Syntax would be hostname-year-mounth-day-time, for my Machine galaxias-2021-11-23-212617 for example"
 echo "------------------------------------------"
 
-## Lists what Snapshots are available from Borg
-borg list "$BORGREPO"
-echo ""
-read -p "Selection:" snapshot
-echo ""
-echo "Selected $snapshot"
-echo ""
+## Lists what Snapshots are available from Borg and ask wich one to restore
+mapfile -t array < <(borg list --short "$BORGREPO")
 
+PS3="Selection: "
+select snapshot in "${array[@]}"
+do
 
+	if [[ -z "$snapshot" ]]
+	then
+		echo "Wrong Input!"
+	else
+		echo ""
+		echo "Selected: $snapshot"
+		echo ""
+		break
+	fi
+done
+PS3="#?"
 
 ## Customized Whileloop from this Source because i was to lazy to read with man how loops are made: https://tecadmin.net/bash-script-prompt-to-confirm-yes-no/
 while true
