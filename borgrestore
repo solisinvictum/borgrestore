@@ -60,9 +60,6 @@ if [ $CONFIGURED = "0" ]
        exit
 fi
 
-## Mounts the Repo
-borg mount "$BORGREPO" "$MOUNTPOINT"
-
 echo "------------------------------------------"
 echo "Wich Snapshot do you want to restore? If you took this Snapshot with Vorta, then the Syntax would be hostname-year-mounth-day-time, for my Machine galaxias-2021-11-23-212617 for example"
 echo "------------------------------------------"
@@ -85,6 +82,9 @@ do
 	fi
 done
 PS3="#?"
+
+## Mounts the Repo
+borg mount "$BORGREPO" "$MOUNTPOINT"
 
 ## Customized Whileloop from this Source because i was to lazy to read with man how loops are made: https://tecadmin.net/bash-script-prompt-to-confirm-yes-no/
 while true
