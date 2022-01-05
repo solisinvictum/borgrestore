@@ -7,7 +7,6 @@ if [ -z "$1" ]
 		echo ""
 		echo "Options:"
 		echo "  -h This Help output"
-		echo "  -u Update Borgrestore"
 		echo "  -r Restore Snapshot"
 		echo ""
 		exit
@@ -20,26 +19,9 @@ then
 		echo ""
 		echo "Options:"
 		echo "  -h This Help output"
-		echo "  -u Update Borgrestore"
 		echo "  -r Restore Snapshot"
 		echo ""
 		exit
-fi
-
-## If requested, this updates borgrestore and exits
-if [ "$1" = "-u" ]
-then
-		if [ "$EUID" -ne 0 ]
-		then 
-				echo "To update borgrestore, you need to be root"
-				exit
-		fi
-
-		wget -q https://raw.githubusercontent.com/solisinvictum/borgrestore/main/borgrestore -O /usr/bin/borgrestore &> /dev/null
-		echo "Borgrestore was updated to the last commits from github page"
-		echo "see https://github.com/solisinvictum/borgrestore/commits/main/borgrestore what is new"
-		exit
-		
 fi
 
 ## if -r for actualy start borgrestore is choosen, start borgrestore's actualy purporse :-)
