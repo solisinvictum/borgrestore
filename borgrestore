@@ -1,138 +1,375 @@
 #!/bin/bash
+#
+# borgrestore - puts the system in exactly the same state as it is in a Borg snapshot.
+# https://github.com/solisinvictum/borgrestore
+#
+# Restores a Borg archive 1:1 with rsync --delete: files that are not in the
+# snapshot are deleted, everything else is put back exactly as it was,
+# including permissions, owners, extended attributes (file capabilities) and
+# hard links. POSIX ACLs are not restored: borg mount does not expose them,
+# so ACLs in the destination are left as they are (no rsync -A, it would
+# remove them).
+#
 
-## Show Help if no option is passed through
-if [ -z "$1" ]
-	then
-		echo "Borgrestore https://github.com/solisinvictum/borgrestore"
-		echo ""
-		echo "Options:"
-		echo "  -h This Help output"
-		echo "  -r Restore Snapshot"
-		echo ""
-		exit
+VERSION="0.4"
+CONFIG="/etc/borgrestore/borgrestore.conf"
+
+mode=""
+archive=""
+dry_run=0
+force=0
+
+usage() {
+	cat <<EOF
+Borgrestore $VERSION https://github.com/solisinvictum/borgrestore
+
+Usage: borgrestore [-c FILE] [-n] [-f] -r [ARCHIVE]
+       borgrestore [-c FILE] -l
+
+Options:
+  -r [ARCHIVE]  Restore a snapshot (asks which one if ARCHIVE is not given)
+  -n            Dry run: with -r, only show what would be changed
+  -l            List the snapshots in the Borg repository
+  -c FILE       Use FILE instead of $CONFIG
+  -f, --force   Restore even if the snapshot does not look like a system
+                (no etc/ and usr/), e.g. for a restore to another destination
+  -h            This help output
+  -V            Show the version
+EOF
+}
+
+error() {
+	echo "borgrestore: $*" >&2
+	exit 1
+}
+
+while [ "$#" -ne 0 ]; do
+	case "$1" in
+		-r)
+			mode="restore"
+			if [ "$#" -ge 2 ] && [ "${2#-}" = "$2" ]; then
+				archive="$2"
+				shift
+			fi
+			;;
+		-l)
+			mode="list"
+			;;
+		-n)
+			dry_run=1
+			;;
+		-f | --force)
+			force=1
+			;;
+		-c)
+			[ "$#" -ge 2 ] || error "option -c needs a file"
+			CONFIG="$2"
+			shift
+			;;
+		-h | --help)
+			usage
+			exit 0
+			;;
+		-V | --version)
+			echo "borgrestore $VERSION"
+			exit 0
+			;;
+		*)
+			usage >&2
+			exit 1
+			;;
+	esac
+	shift
+done
+
+if [ -z "$mode" ]; then
+	usage
+	exit 0
 fi
 
-## The Help if -h passed through
-if [ "$1" = "-h" ]
-then
-		echo "Borgrestore https://github.com/solisinvictum/borgrestore"
-		echo ""
-		echo "Options:"
-		echo "  -h This Help output"
-		echo "  -r Restore Snapshot"
-		echo ""
-		exit
+## Defaults, overridden by the config file
+BORGREPO=""
+DESTINATION="/"
+MOUNTPOINT="/mnt/borgmount"
+RSYNCEXCLUDES=('/proc' '/mnt' '/sys' '/lost+found' '/dev' '/media' '/tmp' '/run')
+EXTRA_EXCLUDES=()
+LIVESYSTEM="1"
+CONFIGURED=""
+
+[ "$(id -u)" -eq 0 ] || error "you need to be root"
+[ -r "$CONFIG" ] || error "cannot read the config file $CONFIG"
+# shellcheck source=borgrestore.conf
+source "$CONFIG"
+
+## Check the config
+if [ "$CONFIGURED" = "0" ] || [ -z "$BORGREPO" ]; then
+	error "Please read and configure the config file $CONFIG first (BORGREPO is not set)!"
 fi
-
-## if -r for actualy start borgrestore is choosen, start borgrestore's actualy purporse :-)
-if [ "$1" = "-r" ]
-then
-
-## pkill vorta if active. to prevent vorta to cause problems.
-pkill vorta
-
-## Include the Configfile
-source "/etc/borgrestore/borgrestore.conf"
-
-## Check if the Configfile was readed and configured
-if [ $CONFIGURED = "0" ]
-    then
-
-       echo "Please read and configure the configfile under /etc/borgrestore/borgrestore.conf first!"
-       exit
+if [ -z "$DESTINATION" ] || [ ! -d "$DESTINATION" ]; then
+	error "DESTINATION '$DESTINATION' is not a directory"
 fi
+[ -n "$MOUNTPOINT" ] || error "MOUNTPOINT is empty"
+# Credentials may be set in the config without "export"
+[ "${BORG_PASSCOMMAND:-}" = "" ] || export BORG_PASSCOMMAND
+[ -z "${BORG_PASSPHRASE+x}" ] || export BORG_PASSPHRASE
+[ -z "${BORG_PASSPHRASE_FD+x}" ] || export BORG_PASSPHRASE_FD
 
-echo "------------------------------------------"
-echo "Wich Snapshot do you want to restore? If you took this Snapshot with Vorta, then the Syntax would be hostname-year-mounth-day-time, for my Machine galaxias-2021-11-23-212617 for example"
-echo "------------------------------------------"
+for tool in borg rsync mountpoint; do
+	command -v "$tool" > /dev/null 2>&1 || error "'$tool' not found, please install it"
+done
 
-## Lists what Snapshots are available from Borg and ask wich one to restore
-mapfile -t array < <(borg list --short "$BORGREPO")
+borg_version="$(borg --version 2> /dev/null | awk '{print $2}')"
+case "$borg_version" in
+	1.*) ;;
+	"") error "cannot run 'borg --version'" ;;
+	*) error "borg $borg_version is not supported yet (borgrestore needs borg 1.x)" ;;
+esac
 
-PS3="Selection: "
-select snapshot in "${array[@]}"
-do
+## List the archives; ask for the passphrase only once
+list_archives() {
+	borg list --short "$BORGREPO"
+}
 
-	if [[ -z "$snapshot" ]]
-	then
-		echo "Wrong Input!"
+if [ -z "${BORG_PASSPHRASE+x}${BORG_PASSCOMMAND:-}${BORG_PASSPHRASE_FD:-}" ]; then
+	# Unencrypted repositories work without a passphrase. Any borg question
+	# gets "no" (stdin closed), the real run below shows it again.
+	if archives="$(BORG_PASSPHRASE="" list_archives < /dev/null 2> /dev/null)"; then
+		export BORG_PASSPHRASE=""
 	else
-		echo ""
-		echo "Selected: $snapshot"
-		echo ""
-		break
+		printf 'Borg passphrase for %s (empty if none): ' "$BORGREPO" >&2
+		read -r -s BORG_PASSPHRASE
+		echo >&2
+		export BORG_PASSPHRASE
+		archives="$(list_archives)" || error "cannot list the archives of $BORGREPO (see the message of borg above)"
 	fi
-done
-PS3="#?"
-
-## Mounts the Repo
-borg mount "$BORGREPO" "$MOUNTPOINT"
-
-## Customized Whileloop from this Source because i was to lazy to read with man how loops are made: https://tecadmin.net/bash-script-prompt-to-confirm-yes-no/
-while true
-do
- read -r -p "ARE YOU SURE? AFTER THIS STEP, THERE IS NO WAY BACK! (y/n)" confirmation
-
- case $confirmation in
-     [yY][eE][sS]|[yY])
-
-        # This restores the Snapshot to Destination and at the end it prompts how long it took. This ignores borgrestore and his config himselfs too to prevent a remove/downgrade of borgrestore.
-        time rsync --verbose --archive --itemize-changes --hard-links --progress --exclude=/usr/bin/borgrestore --exclude=/etc/borgrestore/borgrestore.conf "${RSYNCEXCLUDES[@]/#/--exclude=}" --delete "$MOUNTPOINT/$snapshot/" "$DESTINATION"
-
-        ##Realized that the deletion of the content in /tmp and /run could be wrong, if a another destination is choosen. so checking.
-        if [ "$DESTINATION" = "/" ]
-            then
-                ## Remove some Tempfiles for a clean start from the original System (if selected). This could be unnecessary, but i like it safe.
-                  if [ $LIVESYSTEM = "0" ]
-                       then
-                            rm -Rf -- "$DESTINATION"/tmp/*
-                            rm -Rf -- "$DESTINATION"/run/*
-                  fi
-        fi
-        
-		## Sync the writes
-		sync
-		
-		## Umount the Borg Repo again
-		umount "$MOUNTPOINT"
-		
-        echo ""
-        echo "------------------------------------------"
-        echo "Recovery completed! System can now be restarted. If the recovery was made while the operating system was running, a reboot is mandatory!"
-        echo "------------------------------------------"
-
-		while true
-		do
- 			read -r -p "Do you want to reboot now? [Y/n] " input
- 
- 			case $input in
-     			[yY][eE][sS]|[yY])
- 				reboot -ff
- 			break
- 			;;
-     			[nN][oO]|[nN])
- 				exit
- 			break
-        	;;
-     		*)
- 				 echo "Only Y/N are valid!"
- 			;;
- 			esac
-		done		
-
- break
- ;;
-     [nN][oO]|[nN])
-
-        umount "$MOUNTPOINT"
-        exit
-
- break
-        ;;
-     *)
- echo "Only Y/N are valid!"
- ;;
- esac
-done
-
+else
+	archives="$(list_archives)" || error "cannot list the archives of $BORGREPO (see the message of borg above)"
 fi
+
+mapfile -t array <<< "$archives"
+if [ "${#array[@]}" -eq 0 ] || [ -z "${array[0]}" ]; then
+	error "no archives found in $BORGREPO"
+fi
+
+if [ "$mode" = "list" ]; then
+	printf '%s\n' "${array[@]}"
+	exit 0
+fi
+
+## Choose the snapshot
+if [ -n "$archive" ]; then
+	found=0
+	for a in "${array[@]}"; do
+		[ "$a" = "$archive" ] && found=1
+	done
+	[ "$found" -eq 1 ] || error "archive '$archive' not found in $BORGREPO (see: borgrestore -l)"
+else
+	echo "------------------------------------------"
+	echo "Which snapshot do you want to restore? If you took this snapshot with Vorta, the syntax is hostname-year-month-day-time, for my machine galaxias-2021-11-23-212617 for example"
+	echo "------------------------------------------"
+	PS3="Selection: "
+	select archive in "${array[@]}"; do
+		if [ -z "$archive" ]; then
+			echo "Wrong Input!"
+		else
+			break
+		fi
+	done
+	[ -n "$archive" ] || error "no snapshot selected"
+fi
+echo ""
+echo "Selected: $archive"
+echo ""
+
+## Stop Vorta, so it does not start a backup or lock the repository meanwhile
+pkill vorta 2> /dev/null
+
+## Excludes: config, borgrestore itself, and the mount point and repository
+## if they are inside the destination
+excludes=("${RSYNCEXCLUDES[@]}" "${EXTRA_EXCLUDES[@]}" "/usr/bin/borgrestore" "/etc/borgrestore/")
+dest_real="$(realpath -m -- "$DESTINATION")"
+protected=()
+protect() {
+	local p rel
+	p="$(realpath -m -- "$1")"
+	protected+=("$p")
+	if [ "$p" = "$dest_real" ] || [ "${dest_real#"$p"/}" != "$dest_real" ] || [ "$p" = "/" ]; then
+		error "DESTINATION '$DESTINATION' is the same as or inside '$p' (mount point or repository)"
+	fi
+	if [ "$dest_real" = "/" ]; then
+		rel="$p"
+	elif [ "${p#"$dest_real"/}" != "$p" ]; then
+		rel="/${p#"$dest_real"/}"
+	else
+		return 0
+	fi
+	# rsync treats * ? [ as wildcards; escape them (and \) to match literally
+	case "$rel" in
+		*[*?[]*) rel="$(printf '%s' "$rel" | sed 's/[][*?\\]/\\&/g')" ;;
+	esac
+	excludes+=("$rel")
+}
+protect "$MOUNTPOINT"
+case "$BORGREPO" in
+	file://*) protect "${BORGREPO#file://}" ;;
+	ssh://* | *:*) ;; # remote repository
+	*) protect "$BORGREPO" ;;
+esac
+
+## Mount the archive
+mountpoint -q "$MOUNTPOINT" && error "$MOUNTPOINT is already a mount point, please unmount it first"
+mkdir -p "$MOUNTPOINT" || error "cannot create $MOUNTPOINT"
+[ -z "$(ls -A "$MOUNTPOINT")" ] || error "$MOUNTPOINT is not empty"
+
+# Unmount if mounted. Returns 1 (and keeps "mounted") if that fails.
+mounted=0
+cleanup() {
+	if mountpoint -q "$MOUNTPOINT"; then
+		if ! borg umount "$MOUNTPOINT" && ! umount "$MOUNTPOINT"; then
+			echo "borgrestore: WARNING: could not unmount $MOUNTPOINT" >&2
+			return 1
+		fi
+	fi
+	mounted=0
+	return 0
+}
+# On exit: unmount; a failed unmount turns a successful exit into an error
+on_exit() {
+	local rc=$?
+	if [ "$mounted" -ne 0 ] && ! cleanup && [ "$rc" -eq 0 ]; then
+		rc=1
+	fi
+	exit "$rc"
+}
+trap on_exit EXIT
+trap 'exit 1' HUP INT QUIT TERM
+
+# Armed before mounting: a signal right after "borg mount" still unmounts
+mounted=1
+borg mount "$BORGREPO::$archive" "$MOUNTPOINT" || error "borg mount failed, nothing was changed"
+
+## Never run rsync --delete with an empty, unmounted or unexpected source
+check_source() {
+	mountpoint -q "$MOUNTPOINT" || error "$MOUNTPOINT is not mounted (anymore), nothing was changed"
+	[ -n "$(ls -A "$MOUNTPOINT")" ] || error "the archive '$archive' is empty, nothing was changed"
+	if [ "$force" -eq 0 ] && { [ ! -d "$MOUNTPOINT/etc" ] || [ ! -d "$MOUNTPOINT/usr" ]; }; then
+		error "the archive '$archive' does not look like a system backup (no etc/ and usr/), nothing was changed. Use -f to restore it anyway."
+	fi
+}
+check_source
+
+# No --acls: borg mount does not expose ACLs, rsync would remove them
+rsync_opts=(--archive --hard-links --xattrs --numeric-ids --delete --verbose --itemize-changes)
+for e in "${excludes[@]}"; do
+	rsync_opts+=("--exclude=$e")
+done
+
+# rsync runs inside the mounted archive: the open working directory keeps
+# the mount busy, so it cannot be unmounted under rsync's feet, and an
+# unmounted (empty) directory can never become the source.
+run_rsync() {
+	check_source
+	(
+		cd "$MOUNTPOINT" || exit 99
+		# again after cd: this directory must be the mounted, non-empty archive
+		mountpoint -q . || exit 99
+		[ -n "$(ls -A .)" ] || exit 99
+		if [ "$force" -eq 0 ] && { [ ! -d ./etc ] || [ ! -d ./usr ]; }; then
+			exit 99
+		fi
+		rsync "$@" "${rsync_opts[@]}" ./ "${dest_real%/}/"
+	)
+}
+
+if [ "$dry_run" -eq 1 ]; then
+	echo "Dry run: these changes would be made in $DESTINATION:"
+	echo ""
+	run_rsync --dry-run
+	rc=$?
+	echo ""
+	echo "Dry run finished (rsync exit code $rc), nothing was changed."
+	exit "$rc"
+fi
+
+## Customized while loop from this source because I was too lazy to read with man how loops are made: https://tecadmin.net/bash-script-prompt-to-confirm-yes-no/
+while true; do
+	read -r -p "Restore '$archive' to $DESTINATION? ARE YOU SURE? AFTER THIS STEP, THERE IS NO WAY BACK! (y/n) " confirmation || confirmation="n"
+	case "$confirmation" in
+		[yY][eE][sS] | [yY])
+			break
+			;;
+		[nN][oO] | [nN])
+			echo "Nothing was changed."
+			exit 0
+			;;
+		*)
+			echo "Only Y/N are valid!"
+			;;
+	esac
+done
+
+# This restores the snapshot to the destination and at the end it shows how long it took.
+time run_rsync --progress
+rc=$?
+[ "$rc" -ne 99 ] || error "the archive was unmounted or changed before rsync started, nothing was changed"
+
+## Sync the writes and unmount the archive
+sync
+cleanup || rc=1
+
+## Remove some temp files for a clean start of the original system
+## (offline restore of / only, and only after a successful restore)
+if [ "$rc" -eq 0 ] && [ "$dest_real" = "/" ] && [ "$LIVESYSTEM" = "0" ]; then
+	for d in /tmp /run; do
+		if [ ! -d "$d" ] || [ -L "$d" ]; then
+			continue
+		fi
+		skip=0
+		for p in "${protected[@]}"; do
+			if [ "$p" = "$d" ] || [ "${p#"$d"/}" != "$p" ]; then
+				skip=1
+			fi
+		done
+		if [ "$skip" -eq 1 ]; then
+			echo "Not cleaning $d: it contains the mount point or the repository."
+			continue
+		fi
+		# Entries that are mount points themselves are skipped (rm would treat
+		# them as a start point and delete inside the other file system)
+		find "$d" -mindepth 1 -maxdepth 1 -print0 | while IFS= read -r -d '' entry; do
+			mountpoint -q "$entry" && continue
+			rm -rf --one-file-system -- "$entry"
+		done
+	done
+fi
+
+echo ""
+echo "------------------------------------------"
+if [ "$rc" -ne 0 ]; then
+	echo "rsync or the unmount reported errors (exit code $rc)! Check the output above, the restore may be incomplete."
+	echo "------------------------------------------"
+	exit "$rc"
+fi
+echo "Recovery completed!"
+if [ "$dest_real" != "/" ]; then
+	echo "------------------------------------------"
+	exit 0
+fi
+echo "System can now be restarted. If the recovery was made while the operating system was running, a reboot is mandatory!"
+echo "------------------------------------------"
+
+while true; do
+	read -r -p "Do you want to reboot now? [y/n] " input || input="n"
+	case "$input" in
+		[yY][eE][sS] | [yY])
+			# Forced: after a live restore the running system no longer matches the disk
+			reboot -ff
+			;;
+		[nN][oO] | [nN])
+			exit 0
+			;;
+		*)
+			echo "Only Y/N are valid!"
+			;;
+	esac
+done
