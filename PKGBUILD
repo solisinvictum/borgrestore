@@ -10,7 +10,7 @@ depends=('bash' 'borg' 'python-pyfuse3' 'rsync' 'util-linux')
 optdepends=('vorta: a nice Borg GUI')
 backup=('etc/borgrestore/borgrestore.conf')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('f1b334db3842e8f2830036f48e0c150ca142c38c7308960596558036966aff7d')
 
 package() {
   cd "$pkgname-$pkgver"
